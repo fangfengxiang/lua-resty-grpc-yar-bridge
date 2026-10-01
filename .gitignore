@@ -1,0 +1,27 @@
+# Compiled protobuf test files
+.claude
+.vscode
+.codebuddy
+*.pb
+
+# Test artifacts
+t/servroot*/
+t/log/
+
+# nginx 运行时临时目录（Test::Nginx prefix 落在项目根时自动生成）
+*_temp/
+
+# OPM build artifacts
+*.opm
+opm-out/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor files
+*.swp
+*.swo
+*~
+
+openspec

@@ -1,0 +1,8 @@
+# StyLua 配置 — 与 .luacheckrc max_line_length=120 对齐
+# 文档：https://github.com/JohnnyMorganz/StyLua
+column_width = 120
+indent_type = "Spaces"
+indent_width = 4
+line_endings = "Unix"
+quote_style = "AutoPreferDouble"
+call_parentheses = "Always"

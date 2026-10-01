@@ -1,0 +1,15 @@
+# .dockerignore — Docker 构建上下文排除规则
+# 注意：docker-test.sh 使用 rsync 创建最小上下文，此文件作为补充保护。
+# 如果直接用项目根做 build context（docker build -f t/e2e/Dockerfile ..），
+# 此文件确保排除无关大目录。
+
+.git
+t/e2e/.run
+servroot
+servroot2
+scgi_temp
+uwsgi_temp
+*.o
+*.so
+*.log
+.DS_Store

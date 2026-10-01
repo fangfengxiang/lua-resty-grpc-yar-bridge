@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>gRPC → Yar 桥接快速启动示例</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #0f1923;
+    color: #c9d1d9;
+    font-family: 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+    padding: 32px 20px;
+    max-width: 920px;
+    margin: 0 auto;
+  }
+  h1 {
+    text-align: center;
+    font-size: 24px;
+    color: #e2e8f0;
+    margin-bottom: 4px;
+  }
+  .subtitle {
+    text-align: center;
+    color: #64748b;
+    font-size: 13px;
+    margin-bottom: 28px;
+  }
+  .diagram { margin-bottom: 32px; }
+  .code-section { margin-bottom: 24px; }
+  .code-section h2 {
+    font-size: 15px;
+    color: #94a3b8;
+    margin-bottom: 10px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .code-section h2 .num {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px; height: 22px;
+    border-radius: 50%;
+    font-size: 12px;
+    font-weight: 700;
+    color: #0f1923;
+  }
+  pre {
+    background: #0d1117;
+    border: 1px solid #21262d;
+    border-radius: 10px;
+    padding: 18px 20px;
+    overflow-x: auto;
+    font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+    font-size: 13px;
+    line-height: 1.65;
+    color: #c9d1d9;
+  }
+  pre .k  { color: #ff7b72; }            /* keyword */
+  pre .s  { color: #a5d6ff; }            /* string */
+  pre .c  { color: #8b949e; font-style: italic; } /* comment */
+  pre .f  { color: #d2a8ff; }            /* function */
+  pre .n  { color: #79c0ff; }            /* number */
+  pre .v  { color: #ffa657; }            /* variable */
+  pre .t  { color: #7ee787; }            /* type */
+  .footer-note {
+    margin-top: 8px;
+    padding: 12px 16px;
+    background: #1a2332;
+    border-left: 3px solid #00d4ff;
+    border-radius: 4px;
+    font-size: 12px;
+    color: #94a3b8;
+    line-height: 1.8;
+  }
+</style>
+</head>
+<body>
+
+<h1>gRPC → Yar 桥接快速启动</h1>
+<p class="subtitle">Go gRPC Client → OpenResty Bridge → PHP Yar Server · 最小 Add 示例</p>
+
+<!-- ==================== 架构图 ==================== -->
+<div class="diagram">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 880 280" font-family="'Segoe UI','PingFang SC',sans-serif">
+  <defs>
+    <linearGradient id="goGrad" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#00d4aa"/><stop offset="100%" stop-color="#00a888"/>
+    </linearGradient>
+    <linearGradient id="orGrad" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#ff7733"/><stop offset="100%" stop-color="#e85d1a"/>
+    </linearGradient>
+    <linearGradient id="phpGrad" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#8b5cf6"/><stop offset="100%" stop-color="#7c3aed"/>
+    </linearGradient>
+    <marker id="arr" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto">
+      <path d="M0,0 L9,3 L0,6 Z" fill="#00d4ff"/>
+    </marker>
+    <marker id="arrRev" markerWidth="10" markerHeight="10" refX="0" refY="3" orient="auto">
+      <path d="M9,0 L0,3 L9,6 Z" fill="#00d4ff" opacity="0.35"/>
+    </marker>
+    <filter id="glow"><feGaussianBlur stdDeviation="2.5" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+  </defs>
+
+  <rect width="880" height="280" fill="#0f1923" rx="12"/>
+
+  <!-- Go gRPC Client -->
+  <rect x="30" y="30" width="210" height="90" rx="14" fill="url(#goGrad)"/>
+  <text x="135" y="62" text-anchor="middle" fill="#fff" font-size="16" font-weight="600">Go gRPC Client</text>
+  <text x="135" y="84" text-anchor="middle" fill="#d1fae5" font-size="11">grpc.NewClient("127.0.0.1:1984")</text>
+  <text x="135" y="102" text-anchor="middle" fill="#d1fae5" font-size="11">client.Add(15, 27)</text>
+
+  <!-- arrow → -->
+  <line x1="245" y1="75" x2="335" y2="75" stroke="#00d4ff" stroke-width="2.5" marker-end="url(#arr)" filter="url(#glow)"/>
+  <text x="290" y="64" text-anchor="middle" fill="#00d4ff" font-size="10" font-weight="500">gRPC HTTP/2</text>
+  <text x="290" y="94" text-anchor="middle" fill="#475569" font-size="9">POST /calculator.Calculator/Add</text>
+  <line x1="335" y1="87" x2="245" y2="87" stroke="#00d4ff" stroke-width="1" stroke-dasharray="4,3" opacity="0.3" marker-end="url(#arrRev)"/>
+
+  <!-- OpenResty Bridge -->
+  <rect x="340" y="30" width="210" height="90" rx="14" fill="url(#orGrad)"/>
+  <text x="445" y="56" text-anchor="middle" fill="#fff" font-size="16" font-weight="600">OpenResty Bridge</text>
+  <text x="445" y="76" text-anchor="middle" fill="#ffedd5" font-size="11">:1984 (HTTP/2)</text>
+  <text x="445" y="94" text-anchor="middle" fill="#ffedd5" font-size="10">serve() → bridge.handle()</text>
+  <text x="445" y="110" text-anchor="middle" fill="#ffedd5" font-size="10">protobuf ⇄ Yar packager</text>
+
+  <!-- arrow → -->
+  <line x1="555" y1="75" x2="645" y2="75" stroke="#00d4ff" stroke-width="2.5" marker-end="url(#arr)" filter="url(#glow)"/>
+  <text x="600" y="64" text-anchor="middle" fill="#00d4ff" font-size="10" font-weight="500">Yar RPC</text>
+  <text x="600" y="94" text-anchor="middle" fill="#475569" font-size="9">json / msgpack</text>
+  <line x1="645" y1="87" x2="555" y2="87" stroke="#00d4ff" stroke-width="1" stroke-dasharray="4,3" opacity="0.3" marker-end="url(#arrRev)"/>
+
+  <!-- PHP Yar Server -->
+  <rect x="650" y="30" width="210" height="90" rx="14" fill="url(#phpGrad)"/>
+  <text x="755" y="62" text-anchor="middle" fill="#fff" font-size="16" font-weight="600">PHP Yar Server</text>
+  <text x="755" y="84" text-anchor="middle" fill="#ede9fe" font-size="11">:8888 api.php</text>
+  <text x="755" y="102" text-anchor="middle" fill="#ede9fe" font-size="11">function add($a, $b)</text>
+
+  <!-- 中间：数据变换说明 -->
+  <rect x="30" y="145" width="830" height="50" rx="10" fill="#1a2332" stroke="#21262d" stroke-width="1"/>
+  <text x="445" y="167" text-anchor="middle" fill="#64748b" font-size="10">请求方向</text>
+  <text x="445" y="185" text-anchor="middle" fill="#cbd5e1" font-size="11">
+    client.Add(15,27) → gRPC 帧 → protobuf 解码 → Yar 请求 add(15,27) → PHP 返回 42 → Yar 响应 → protobuf 编码 → gRPC 帧 → client
+  </text>
+
+  <!-- 前置：Proto 描述符 -->
+  <rect x="30" y="215" width="830" height="50" rx="10" fill="#0d1117" stroke="#00d4aa" stroke-width="1" stroke-dasharray="4,2"/>
+  <text x="50" y="237" fill="#00d4aa" font-size="11" font-weight="600">前置：生成 .pb 描述符</text>
+  <text x="50" y="255" fill="#8b949e" font-family="monospace" font-size="11">
+    protoc --go_out=. --go-grpc_out=. calculator.proto　　# Go 代码
+  </text>
+  <text x="50" y="270" fill="#8b949e" font-family="monospace" font-size="11">
+    protoc --descriptor_set_out=calculator.pb calculator.proto　# OpenResty 用
+  </text>
+</svg>
+</div>
+
+<!-- ==================== OpenResty 配置 ==================== -->
+<div class="code-section">
+  <h2><span class="num" style="background:#ff7733">1</span> OpenResty 配置 (nginx.conf)</h2>
+<pre><span class="c"># nginx.conf</span>
+<span class="k">worker_processes</span> 1;
+<span class="k">events</span> { <span class="k">worker_connections</span> 64; }
+
+<span class="k">http</span> {
+    <span class="k">lua_package_path</span> <span class="s">"/path/to/lib/?.lua;/path/to/lib/?/init.lua;;"</span>;
+
+    <span class="k">init_by_lua_block</span> {
+        <span class="k">require</span>(<span class="s">"resty.yar_grpc_bridge"</span>).<span class="f">setup</span> {
+            services = {
+                [<span class="s">"calculator.Calculator"</span>] = {
+                    proto   = <span class="s">"/path/to/calculator.pb"</span>,
+                    url     = <span class="s">"http://127.0.0.1:8888/api.php"</span>,
+                    options = { packager = <span class="s">"json"</span> },
+                },
+            },
+        }
+    }
+
+    <span class="k">server</span> {
+        <span class="k">listen</span> 1984;
+        <span class="k">http2</span> <span class="k">on</span>;
+
+        <span class="k">location</span> / {
+            <span class="k">set</span> <span class="v">$grpc_status</span>  <span class="s">"0"</span>;
+            <span class="k">set</span> <span class="v">$grpc_message</span> <span class="s">""</span>;
+            <span class="k">add_trailer</span> grpc-status  <span class="v">$grpc_status</span>  always;
+            <span class="k">add_trailer</span> grpc-message <span class="v">$grpc_message</span> always;
+            <span class="k">content_by_lua_block</span> { <span class="k">require</span>(<span class="s">"resty.yar_grpc_bridge"</span>).<span class="f">serve</span>() }
+        }
+    }
+}</pre>
+</div>
+
+<!-- ==================== PHP Server ==================== -->
+<div class="code-section">
+  <h2><span class="num" style="background:#8b5cf6">2</span> PHP Yar 服务端 (api.php)</h2>
+<pre><span class="c">&lt;?php</span>
+<span class="c">// 启动: php -d yar.packager=json -S 127.0.0.1:8888 api.php</span>
+<span class="c">// yar.packager 是 PHP_INI_SYSTEM 级别，必须用 -d 传入，ini_set 无效</span>
+
+<span class="k">class</span> <span class="t">Calculator</span> {
+    <span class="k">public function</span> <span class="f">add</span>(<span class="v">$a</span>, <span class="v">$b</span>) {
+        <span class="k">return</span> <span class="v">$a</span> + <span class="v">$b</span>;
+    }
+}
+
+(<span class="k">new</span> <span class="t">Yar_Server</span>(<span class="k">new</span> <span class="t">Calculator</span>()))-&gt;<span class="f">handle</span>();</pre>
+</div>
+
+<!-- ==================== Go Client ==================== -->
+<div class="code-section">
+  <h2><span class="num" style="background:#00d4aa">3</span> Go gRPC 客户端 (client.go)</h2>
+<pre><span class="k">package</span> main
+
+<span class="k">import</span> (
+    <span class="s">"context"</span>
+    <span class="s">"fmt"</span>
+    <span class="s">"time"</span>
+
+    <span class="s">"google.golang.org/grpc"</span>
+    <span class="s">"google.golang.org/grpc/credentials/insecure"</span>
+
+    calcpb <span class="s">"calc/proto"</span>
+)
+
+<span class="k">func</span> <span class="f">main</span>() {
+    conn, _ := grpc.<span class="f">NewClient</span>(<span class="s">"127.0.0.1:1984"</span>,
+        grpc.<span class="f">WithTransportCredentials</span>(insecure.<span class="f">NewCredentials</span>()))
+    <span class="k">defer</span> conn.<span class="f">Close</span>()
+
+    client := calcpb.<span class="f">NewCalculatorClient</span>(conn)
+
+    ctx, cancel := context.<span class="f">WithTimeout</span>(context.<span class="f">Background</span>(), <span class="n">5</span>*time.Second)
+    <span class="k">defer</span> <span class="f">cancel</span>()
+
+    resp, err := client.<span class="f">Add</span>(ctx, &amp;calcpb.AddRequest{A: <span class="n">15</span>, B: <span class="n">27</span>})
+    <span class="k">if</span> err != <span class="k">nil</span> {
+        <span class="f">panic</span>(err)
+    }
+    fmt.<span class="f">Println</span>(<span class="s">"result:"</span>, resp.<span class="f">GetResult</span>()) <span class="c">// result: 42</span>
+}</pre>
+</div>
+
+<!-- ==================== 备注 ==================== -->
+<div class="footer-note">
+  <strong style="color:#e2e8f0">关键要点：</strong><br>
+  • <strong style="color:#00d4aa">.pb 描述符</strong>：setup() 用 pb.load() 加载，类型名按 {Service}_{Method}Request 约定自动解析<br>
+  • <strong style="color:#8b5cf6">packager</strong>：PHP 端 <code>-d yar.packager=json</code>（INI 级别），Lua 端 <code>options.packager="json"</code>，两端必须一致<br>
+  • <strong style="color:#ff7733">trailers</strong>：OpenResty 不支持直接设 HTTP/2 trailers，用 <code>add_trailer</code> + <code>$grpc_status</code> 变量<br>
+  • <strong style="color:#00d4ff">方法映射</strong>：gRPC path <code>/calculator.Calculator/Add</code> → Yar 方法 <code>add</code>（自动首字母小写）<br>
+  • <code>/path/to/</code> 替换为实际路径，<code>lib/</code> 指 lua-resty-yar-grpc-bridge 的 lib/ 目录
+</div>
+
+</body>
+</html>

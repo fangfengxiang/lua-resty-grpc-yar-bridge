@@ -1,0 +1,61 @@
+site_name: lua-resty-yar-grpc-bridge
+site_url: https://fangfengxiang.github.io/lua-resty-yar-grpc-bridge/
+site_description: gRPC to YAR protocol bridge for OpenResty, bridging gRPC clients to PHP YAR servers
+repo_url: https://github.com/fangfengxiang/lua-resty-yar-grpc-bridge
+repo_name: fangfengxiang/lua-resty-yar-grpc-bridge
+edit_uri: edit/main/docs/
+
+docs_dir: docs
+
+theme:
+  name: material
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.expand
+    - navigation.indexes
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+    - content.action.edit
+  palette:
+    - scheme: default
+      primary: indigo
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - scheme: slate
+      primary: indigo
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  icon:
+    repo: fontawesome/brands/github
+
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - toc:
+      permalink: true
+
+nav:
+  - Home: index.md
+  - Reference:
+      - API Reference: api.md
+  - Design:
+      - ADR Index: design/decisions.md
+      - Architecture Overview: design/overview.md
+      - Bridge Layer: design/bridge-layer.md
+      - Codec Layer: design/codec-layer.md
+      - Deadline Layer: design/deadline-layer.md
+      - Error Layer: design/error-layer.md
+      - Circuit Breaker: design/circuit-breaker-layer.md
+      - Observability: design/observability-layer.md
+  - Reports:
+      - Kong Architecture Analysis: kong-architecture-analysis.md
+      - Optimization Plan 0.1.0: optimization-plan-yar-0.1.0.md
+      - Proposal Reevaluation: proposal-reevaluation.md

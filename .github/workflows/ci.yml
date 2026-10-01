@@ -1,0 +1,122 @@
+name: CI
+
+# push/PR 触发：lint（luacheck + stylua）+ Test::Nginx 集成测试 + e2e 端到端测试
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ── Lua 静态检查 + 格式风格检查（快速反馈）──
+  # luacheck: 静态分析（未定义变量、未使用、全局等）
+  # stylua --check: 代码格式一致性（不修改文件，仅报告差异）
+  # 注：lib/ 用 LSP/Emmylua 注解（---@class/---@param），LDoc 不兼容（LDoc 解析单横线 @param，
+  #     LSP 用双横线 ---@param）。故不引入 LDoc；注释规范用 LSP 注解（lua-language-server IDE 校验）。
+  lint:
+    name: Lint (luacheck + stylua)
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      # 用 leafo/gh-actions-lua + luarocks 装 luacheck（对标 lua-yar CI）
+      # 不用 apt：Ubuntu 22.04 luacheck 在 universe 仓库，GitHub runner 默认源未启用，
+      # apt-get install luacheck 报 "Unable to locate package"
+      - name: Setup Lua 5.1
+        uses: leafo/gh-actions-lua@v13
+        with:
+          luaVersion: "5.1"
+      - name: Setup LuaRocks
+        uses: leafo/gh-actions-luarocks@v6
+      - name: Install luacheck
+        run: luarocks install luacheck
+      - name: Run stylua --check
+        uses: JohnnyMorganz/stylua-action@v4
+        with:
+          version: latest
+          # v4 要求 token：action 通过 GitHub API 下载 release，匿名访问触发限流。
+          # GITHUB_TOKEN 由 Actions 运行时自动注入，无需额外配置 secret。
+          token: ${{ secrets.GITHUB_TOKEN }}
+          # v4 必传 args：无 args 时 action 仍执行裸 stylua，报 "no files provided"（exit 2）。
+          # 传 --check lib/ 即安装 + 检查一步完成（不修改文件，仅报告格式差异）。
+          args: --check lib/
+      - name: Run luacheck
+        run: luacheck lib/
+
+  # ── OPM 打包校验（dist.ini + lib 结构 → .opm 包可构建）──
+  # 原 opm-build.yml 合并进来：触发条件与 ci 相同（push/PR main），独立 workflow 冗余。
+  # 用 setup-test action（install-test-nginx=false，不需 test-nginx）装 openresty + opm。
+  # release.yml 另有一份 opm build（发布语境构建真实产物 + push），那份不合并。
+  opm-build:
+    name: OPM Build
+    needs: lint  # lint 门禁：语法/格式不过不跑打包校验
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-test
+        with:
+          install-test-nginx: 'false'
+      - name: OPM build validation
+        run: |
+          printf 'github_account=fangfengxiang\ndownload_server=https://opm.openresty.org\n' > ~/.opmrc
+          opm build
+
+  # ── Test::Nginx 集成测试（OpenResty 业界标杆）──
+  # 用 Test::Nginx（Perl Test::Nginx::Socket::Lua）启动真实 nginx + OpenResty，
+  # 在 content_by_lua_block 跑测试，与 nginx 完全兼容。
+  # 不用 busted：busted 跑在 luajit CLI 无 ngx 上下文，本项目 lib 依赖 ngx API（host.ctx/now/log），
+  # require 时 ngx nil 崩溃。busted 仅适合纯 Lua 协议库（如 lua-yar 无 ngx 依赖）。
+  # 标杆：lua-resty-core / lua-resty-http / lua-resty-redis 均用 Test::Nginx。
+  test:
+    name: Test::Nginx
+    needs: opm-build  # 串行链 lint → opm-build → test → e2e：打包校验不过不跑集成测试
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-test
+      - name: Run tests
+        run: prove -I../test-nginx/lib -r t
+        env:
+          LUA_PATH: ${{ env.LUA_PATH }}
+          LUA_CPATH: ${{ env.LUA_CPATH }}
+
+  # ── 端到端测试（真实 PHP Yar ↔ Go gRPC 双向互操作，Docker 镜像隔离）──
+  # 参考 lua-yar Docker CI 模式：镜像只装依赖，项目源码 -v 挂载（镜像可缓存，源码改动无需重建）。
+  # 镜像内含 OpenResty + PHP(yar/msgpack) + Go + protoc + lua-protobuf + lua-yar + lua-yar-grpc。
+  # Scenario 2: Go gRPC → OpenResty (grpc2yar) → PHP Yar
+  # Scenario 1: PHP Yar → OpenResty (yar2grpc) → Go gRPC
+  e2e:
+    name: E2E Tests (Docker)
+    needs: test  # 串行链末端：集成测试不过不跑最贵的 Docker 端到端（lint→test 已串，test 隐式依赖 lint）
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build e2e Docker image
+        run: docker build -t yar-grpc-bridge-e2e -f t/e2e/Dockerfile t/e2e/
+
+      - name: Run e2e tests (json + msgpack, scenario 1 + 2)
+        # -v 挂载项目源码到 /app（镜像无源码）；exit code 透传
+        run: docker run --rm -v "$(pwd):/app" -w /app yar-grpc-bridge-e2e bash t/e2e/run_e2e.sh
+
+      - name: Upload logs on failure
+        if: failure()
+        id: upload-logs
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-logs
+          path: t/e2e/.run/logs/
+          retention-days: 7
+          # .run 是隐藏目录，upload-artifact v4.4+ 默认排除隐藏文件，需显式开启
+          include-hidden-files: true
+
+      # 把 artifact 下载链接打到 run 摘要页顶部（GITHUB_STEP_SUMMARY），日志同步输出兜底
+      - name: Print logs download URL
+        if: failure()
+        run: |
+          echo "📦 e2e logs: ${{ steps.upload-logs.outputs.artifact-url }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "e2e logs artifact: ${{ steps.upload-logs.outputs.artifact-url }}"

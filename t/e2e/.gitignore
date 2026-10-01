@@ -1,0 +1,9 @@
+# Go build artifacts
+go/bin/
+
+# Proto generated files
+go/proto/*.pb.go
+../proto/*.pb
+
+# Runtime directory (.run/) — logs, pid, compiled binaries, nginx temp
+.run/

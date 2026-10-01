@@ -1,0 +1,52 @@
+name: Setup test environment
+description: Install OpenResty, lua-yar-grpc (luarocks, latest, 连带装 lua-yar + lua-protobuf), test-nginx, setup LUA_PATH
+
+inputs:
+  install-test-nginx:
+    description: Whether to install Test::Nginx (needed for prove-based tests)
+    required: false
+    default: 'true'
+
+runs:
+  using: composite
+  steps:
+    - name: Install OpenResty
+      shell: bash
+      run: |
+        wget -qO - https://openresty.org/package/pubkey.gpg \
+          | sudo gpg --dearmor -o /usr/share/keyrings/openresty.gpg
+        codename=$(lsb_release -sc)
+        echo "deb [signed-by=/usr/share/keyrings/openresty.gpg] http://openresty.org/package/ubuntu $codename main" \
+          | sudo tee /etc/apt/sources.list.d/openresty.list
+        sudo apt-get update -qq
+        sudo apt-get install -y -qq openresty openresty-opm
+
+    # lua-yar-grpc 的 rockspec 已声明 dependencies = {lua-yar, lua-protobuf}，
+    # luarocks 自动递归安装，单条命令即可装齐三个 Lua 依赖。
+    # 不锁版本号：取 luarocks.org 最新发布版（当前 0.1.0-3，其 dependencies 已钉
+    # lua-yar >= 0.1.2，避开 lua-yar 0.1.1-x 的 build.type="none" 坏包）。
+    # v0.1.0 已含 deadline.lua 微秒/纳秒换算修正（u: 1→0.001, n: 1→0.000001 ms）。
+    # build-essential 先于 luarocks install：lua-protobuf 是 C 扩展，现场编译 pb.c
+    # 成 .so 需 gcc；openresty luajit 自带头文件，--lua-dir 指向它即可。
+    # --lua-dir 必须保留：让模块装进 openresty luajit 树，后续 setup paths 设的
+    # LUA_PATH/LUA_CPATH 才能查到（否则落到系统 lua5.1 路径，test-nginx 找不到）。
+    - name: Install lua-yar-grpc (latest, 连带装 lua-yar + lua-protobuf)
+      shell: bash
+      run: |
+        sudo apt-get install -y -qq build-essential luarocks
+        sudo luarocks --lua-dir=/usr/local/openresty/luajit install lua-yar-grpc
+
+    - name: Install test-nginx
+      if: inputs.install-test-nginx == 'true'
+      shell: bash
+      run: |
+        sudo apt-get install -y -qq cpanminus
+        sudo cpanm --notest Test::Nginx
+
+    - name: Setup paths
+      shell: bash
+      run: |
+        echo "/usr/local/openresty/bin" >> $GITHUB_PATH
+        echo "/usr/local/openresty/nginx/sbin" >> $GITHUB_PATH
+        echo "LUA_PATH=$PWD/lib/?.lua;$PWD/lib/?/init.lua;/usr/local/openresty/luajit/share/lua/5.1/?.lua;/usr/local/openresty/luajit/share/lua/5.1/?/init.lua;;" >> $GITHUB_ENV
+        echo "LUA_CPATH=/usr/local/openresty/luajit/lib/lua/5.1/?.so;;" >> $GITHUB_ENV

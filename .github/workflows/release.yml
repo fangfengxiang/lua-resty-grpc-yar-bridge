@@ -1,0 +1,135 @@
+name: Release
+
+# Triggered when a version tag (v*) is pushed.
+# Convention: tag name = v<version>, e.g. v0.1.0, v0.2.0-rc1
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Extract version from tag
+        id: version
+        run: echo "version=${GITHUB_REF_NAME#v}" >> $GITHUB_OUTPUT
+
+      - name: Verify dist.ini version matches tag
+        run: |
+          TAG_VERSION="${{ steps.version.outputs.version }}"
+          DIST_VERSION=$(grep '^version=' dist.ini | cut -d= -f2)
+          if [ "$TAG_VERSION" != "$DIST_VERSION" ]; then
+            echo "::error::Version mismatch: tag=$TAG_VERSION dist.ini=$DIST_VERSION"
+            exit 1
+          fi
+
+      - name: Install OpenResty (for opm build)
+        run: |
+          wget -qO - https://openresty.org/package/pubkey.gpg \
+            | sudo gpg --dearmor -o /usr/share/keyrings/openresty.gpg
+          codename=$(lsb_release -sc)
+          echo "deb [signed-by=/usr/share/keyrings/openresty.gpg] http://openresty.org/package/ubuntu $codename main" \
+            | sudo tee /etc/apt/sources.list.d/openresty.list
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq openresty openresty-opm
+          echo "/usr/local/openresty/bin" >> $GITHUB_PATH
+
+      - name: OPM build
+        id: opm
+        # release job 仅构建 .opm 包供 GitHub Release 附带；上传到 OPM 仓库由独立 opm job（deploy 审批门禁）处理。
+        run: |
+          echo "github_account=${{ github.repository_owner }}" > ~/.opmrc
+          echo "download_server=https://opm.openresty.org" >> ~/.opmrc
+          opm build
+          # opm build 产出 *.opm 包（如 lua-resty-yar-grpc-bridge-0.1.0.opm），捕获文件名供 release 附带
+          OPM_PKG=$(ls *.opm | head -1)
+          echo "pkg=$OPM_PKG" >> $GITHUB_OUTPUT
+
+      - name: Create source tarball
+        run: |
+          git archive --format=tar.gz \
+            --prefix=lua-resty-yar-grpc-bridge-${{ steps.version.outputs.version }}/ \
+            -o lua-resty-yar-grpc-bridge-${{ steps.version.outputs.version }}.tar.gz HEAD
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: lua-resty-yar-grpc-bridge v${{ steps.version.outputs.version }}
+          body: |
+            gRPC to YAR protocol bridge for OpenResty, bridging gRPC clients to PHP YAR servers.
+
+            ## Installation
+
+            ```bash
+            opm get fangfengxiang/lua-resty-yar-grpc-bridge
+            ```
+
+            Dependencies: [lua-yar](https://github.com/fangfengxiang/lua-yar) >= 0.1.2, [lua-yar-grpc](https://github.com/fangfengxiang/lua-yar-grpc) >= 0.1.0, [lua-protobuf](https://github.com/starwing/lua-protobuf) >= 0.3.0.
+
+            ## Key Features
+
+            - Bidirectional gRPC ↔ YAR protocol bridge (forward: gRPC→YAR, reverse: YAR→gRPC)
+            - Convention-based service mapping (no per-method config)
+            - Pre-compiled .pb descriptor loading (zero protoc at runtime)
+            - gRPC status code mapping from YAR errors
+            - Deadline propagation from grpc-timeout header
+            - Observability: request ID, access log, composable hooks (pcall-isolated)
+            - Non-blocking cosocket I/O with persistent client pooling
+
+            ## Documentation
+
+            - [README](https://github.com/fangfengxiang/lua-resty-yar-grpc-bridge#readme)
+            - [API Reference](https://fangfengxiang.github.io/lua-resty-yar-grpc-bridge/)
+            - [Changelog](https://github.com/fangfengxiang/lua-resty-yar-grpc-bridge/blob/main/CHANGELOG.md)
+          generate_release_notes: true
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          files: |
+            lua-resty-yar-grpc-bridge-${{ steps.version.outputs.version }}.tar.gz
+            ${{ steps.opm.outputs.pkg }}
+
+  # ── Publish to OPM (OpenResty Package Manager) ──
+  # 对标 lua-yar release.yml 的 opm job：独立 job + deploy 审批门禁。
+  # 上传到公共包仓库前必须在 GitHub UI 点 Review deployments → Approve（防误发）。
+  # 凭据：OPM_USERNAME（repository variable，门禁标志）+ OPM_PASSWORD（secret，即 GitHub PAT）。
+  #   opm 无 push/sign 命令：上传用 opm upload，PAT 写入 ~/.opmrc 的 github_token=。
+  #   PAT 在 https://github.com/settings/tokens 生成，scopes 仅勾 user:email（多了会被服务器拒绝）。
+  # 若 OPM_USERNAME 未配置：build 仍跑（校验），upload 跳过。
+  opm:
+    needs: release
+    environment: deploy   # 等待 GitHub UI 手动审批后才上传到 OPM 仓库
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install OpenResty (includes opm CLI)
+        run: |
+          wget -qO - https://openresty.org/package/pubkey.gpg \
+            | sudo gpg --dearmor -o /usr/share/keyrings/openresty.gpg
+          echo "deb [signed-by=/usr/share/keyrings/openresty.gpg] http://openresty.org/package/ubuntu $(lsb_release -sc) main" \
+            | sudo tee /etc/apt/sources.list.d/openresty.list
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq openresty
+          echo "/usr/local/openresty/bin" >> $GITHUB_PATH
+
+      - name: Configure opm
+        run: |
+          echo "github_account=${{ github.repository_owner }}" > ~/.opmrc
+          echo "upload_server=https://opm.openresty.org" >> ~/.opmrc
+          echo "download_server=https://opm.openresty.org" >> ~/.opmrc
+
+      - name: Build OPM package
+        run: opm build
+
+      - name: Upload to OPM
+        if: ${{ vars.OPM_USERNAME != '' }}
+        env:
+          OPM_PASSWORD: ${{ secrets.OPM_PASSWORD }}
+        run: |
+          echo "github_token=$OPM_PASSWORD" >> ~/.opmrc
+          opm upload

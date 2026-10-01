@@ -1,0 +1,37 @@
+syntax = "proto3";
+
+package calculator;
+
+option go_package = "calc/proto;calculatorpb";
+
+// gRPC service definition (for Go server/client code generation)
+service Calculator {
+  rpc Add(Calculator_AddRequest) returns (Calculator_AddResponse);
+  rpc Subtract(Calculator_SubtractRequest) returns (Calculator_SubtractResponse);
+}
+
+// Message 命名约定（与核心库 grpc_converter.get_type_names 拼接规则对齐）：
+//   短名      = {ServiceShort}_{Method}Request/Response      (如 Calculator_AddRequest)
+//   全限定    = {package}.{ServiceShort}_{Method}Request     (如 calculator.Calculator_AddRequest)
+// get_type_names 拼接：service .. "_" .. method .. "Request"
+//   service=calculator.Calculator(全限定), method=Add → calculator.Calculator_AddRequest (= 全限定 message 名)
+// 契约：setup 注册的 service 必须全限定（含 package 前缀），methods 必须用 gRPC Method 名（首字母大写）
+// gRPC path 用全限定 service：/calculator.Calculator/Add（gRPC 标准，非短名 /Calculator/Add）
+
+message Calculator_AddRequest {
+  int32 a = 1;
+  int32 b = 2;
+}
+
+message Calculator_AddResponse {
+  int32 result = 1;
+}
+
+message Calculator_SubtractRequest {
+  int32 a = 1;
+  int32 b = 2;
+}
+
+message Calculator_SubtractResponse {
+  int32 result = 1;
+}
